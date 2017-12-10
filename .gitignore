@@ -1,0 +1,5 @@
+**/__pycache__
+.idea
+settings.ini
+latest_sync.txt
+tmp/db.sql
