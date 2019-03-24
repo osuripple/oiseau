@@ -1,7 +1,6 @@
 import subprocess
 
-import progressbar
-import time
+import requests
 
 
 def rsync_cmd(source, dest, port):
