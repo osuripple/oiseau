@@ -166,17 +166,34 @@ try:
 
     # We have everything we need from C14, start syncing
     # Sync replays, avatars, screenshots and profile backgrounds
-    for d in ["REPLAYS", "AVATARS", "SCREENSHOTS", "PROFILE_BACKGROUNDS"]:
+    latest_sync = "Never"
+    utils.call_process(utils.scp_download_cmd("{}/latest_sync.txt".format(ssh_remote), ssh_port, "tmp/latest_sync.txt", key_location="~/prodkey/id_rsa"))
+    if not os.path.isfile("tmp/latest_sync.txt"):
+        utils.warn("Cannot find latest_sync on remote endpoint!")
+    else:
+        with open("tmp/latest_sync.txt") as f:
+            latest_sync = f.read()
+        os.remove("tmp/latest_sync.txt")
+
+    tr = utils.telegram_notify(utils.telegram_status_message(latest_sync=latest_sync))
+    telegram_main_message = tr.json()["result"]
+    done = {"replays": False, "avatars": False, "screenshots": False, "profile_backgrounds": False, "database": False}
+    for d in (x.upper() for x in done.keys() if x != "database"):
         if not config["SYNC_{}".format(d)]:
             printc("* {} syncing disabled".format(d), utils.BColors.YELLOW)
             continue
 
-        rsync_command = utils.rsync_cmd(config["{}_FOLDER".format(d)], ssh_remote, ssh_port)
+        rsync_command = utils.rsync_upload_cmd(config["{}_FOLDER".format(d)], ssh_remote, ssh_port)
         printc("* Syncing {}".format(d), utils.BColors.BLUE)
         exit_code = utils.call_process(rsync_command)
         if exit_code != 0:
             raise CriticalError("Something went wrong while syncing {}! (exit code: {})".format(d, exit_code))
-        printc("* Done syncing {}!\n".format(d), utils.BColors.GREEN)
+        utils.sync_done(
+            what=d,
+            done_dict=done,
+            latest_sync=latest_sync,
+            telegram_message_id=telegram_main_message["message_id"]
+        )
 
     if config["SYNC_DATABASE"]:
         # Dump database to tmp/db.sql
@@ -193,10 +210,15 @@ try:
 
         # Sync database
         printc("* Syncing database...", utils.BColors.BLUE)
-        exit_code = utils.call_process(utils.rsync_cmd("tmp/db.sql", ssh_remote, ssh_port))
+        exit_code = utils.call_process(utils.rsync_upload_cmd("tmp/db.sql", ssh_remote, ssh_port))
         if exit_code != 0:
             raise CriticalError("Something went wrong while syncing the database! (exit code: {})".format(exit_code))
-        printc("* Done syncing database!", utils.BColors.GREEN)
+        utils.sync_done(
+            what="database",
+            done_dict=done,
+            latest_sync=latest_sync,
+            telegram_message_id=telegram_main_message["message_id"]
+        )
 
         # Delete temp db dump
         printc("* Deleting temporary database dump...", utils.BColors.BLUE)
@@ -207,14 +229,23 @@ try:
     printc("\n* Updating latest sync to {}".format(latest_sync), utils.BColors.BLUE)
     with open("latest_sync.txt", "w+") as f:
         f.write(latest_sync)
-    exit_code = utils.call_process(utils.rsync_cmd("latest_sync.txt", ssh_remote, ssh_port))
+    exit_code = utils.call_process(utils.rsync_upload_cmd("latest_sync.txt", ssh_remote, ssh_port))
     if exit_code != 0:
         raise CriticalError(
             "Something went wrong while syncing the latest sync date! (exit code: {})".format(exit_code)
         )
 
     # Finally done
-    printc("* All done!", utils.BColors.GREEN)
+    utils.sync_done(
+        done_dict=done,
+        latest_sync=latest_sync,
+        telegram_message_id=telegram_main_message["message_id"],
+        done=True
+    )
 except CriticalError as e:
     printc("# {}".format(e.message), utils.BColors.RED + utils.BColors.BOLD)
+    utils.telegram_notify(
+        "<b>Critical error during backup.</b>\n\n<code>{}</code>".format(e.message),
+        prefix=utils.TelegramPrefixes.ERROR
+    )
     exit(-1)

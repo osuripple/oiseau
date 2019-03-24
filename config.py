@@ -24,6 +24,9 @@ class Config:
             "DB_USERNAME": config("DB_USERNAME", default=""),
             "DB_PASSWORD": config("DB_PASSWORD", default=""),
             "DB_NAME": config("DB_NAME", default=""),
+
+            "TELEGRAM_TOKEN": config("TELEGRAM_TOKEN", default=""),
+            "TELEGRAM_CHAT_ID": config("TELEGRAM_CHAT_ID", default=""),
         }
 
     def __getitem__(self, item):
