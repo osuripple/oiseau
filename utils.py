@@ -103,7 +103,7 @@ class TelegramStatusMessage:
 
     @property
     def done(self):
-        return all(True for k, v in self.done_what.items() if not Config()["SYNC_{}".format(k.upper())] or v)
+        return all(not Config()["SYNC_{}".format(k.upper())] or v for k, v in self.done_what.items())
 
     @property
     def telegram_message(self):
