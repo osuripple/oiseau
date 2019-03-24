@@ -176,7 +176,7 @@ try:
         os.remove("tmp/latest_sync.txt")
 
     tr = utils.telegram_notify(utils.telegram_status_message(latest_sync=latest_sync))
-    telegram_main_message = tr.json()["result"]
+    telegram_main_message = tr.json()["result"] if tr is not None else None
     done = {"replays": False, "avatars": False, "screenshots": False, "profile_backgrounds": False, "database": False}
     for d in (x.upper() for x in done.keys() if x != "database"):
         if not config["SYNC_{}".format(d)]:

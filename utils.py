@@ -71,14 +71,14 @@ def warn(message, telegram=True):
 
 
 def telegram_api_call(method, data, token=None):
+    if not Config()["TELEGRAM_TOKEN"]:
+        return
     if token is None:
         token = Config()["TELEGRAM_TOKEN"]
     return requests.post("https://api.telegram.org/bot{}/{}".format(token, method), data=data)
 
 
 def telegram_notify(message, chat_id=None, parse_mode="html", prefix=TelegramPrefixes.NORMAL):
-    if not Config()["TELEGRAM_TOKEN"]:
-        return
     if chat_id is None:
         chat_id = Config()["TELEGRAM_CHAT_ID"]
     return telegram_api_call("sendMessage", {
