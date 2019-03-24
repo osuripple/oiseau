@@ -43,7 +43,7 @@ try:
     # Filter only desired C14 buckets by name and sort them by creation date (most recent first)
     sync_archives = sorted(
         [x for x in archives if x["name"].lower() == config["C14_SYNC_NAME"]],
-        key=lambda x: int(iso8601.parse_date(x["creation_date"]).strftime("%s")),
+        key=lambda x: int(time.mktime(iso8601.parse_date(x["creation_date"]).timetuple())),
         reverse=True
     )
     if not sync_archives:
