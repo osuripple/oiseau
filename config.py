@@ -9,11 +9,12 @@ class Config:
 
             "C14_SYNC_NAME": config("C14_SYNC_NAME", default="sync"),
             "C14_ALLOWED_SSH_KEYS": config("C14_ALLOWED_SSH_KEYS", default="", cast=Csv(str)),
+            "SSH_KEY_LOCATION": config("SSH_KEY_LOCATION", default="~/.ssh/id_rsa"),
 
             "SYNC_REPLAYS": config("SYNC_REPLAYS", default="true", cast=bool),
             "SYNC_AVATARS": config("SYNC_AVATARS", default="true", cast=bool),
             "SYNC_SCREENSHOTS": config("SYNC_SCREENSHOTS", default="true", cast=bool),
-            "SYNC_PROFILE_BACKGROUNDS": config("SYNC_PROFILE_BACKGROUNDS", default="true", cast=bool),
+            "SYNC_PROFILE_BACKGROUNDS": config("SYNC_PROFILE_BACKGROUNDS", default="True", cast=bool),
             "SYNC_DATABASE": config("SYNC_DATABASE", default="true", cast=bool),
 
             "REPLAYS_FOLDER": config("REPLAYS_FOLDER", default=""),
@@ -27,6 +28,8 @@ class Config:
 
             "TELEGRAM_TOKEN": config("TELEGRAM_TOKEN", default=""),
             "TELEGRAM_CHAT_ID": config("TELEGRAM_CHAT_ID", default=""),
+
+            "COMPRESS_DATABASE": config("COMPRESS_DATABASE", default="False", cast=bool)
         }
 
     def __getitem__(self, item):

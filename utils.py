@@ -1,3 +1,4 @@
+import html
 import subprocess
 
 import requests
@@ -5,11 +6,12 @@ import requests
 from config import Config
 
 
-def rsync_upload_cmd(source, dest, port):
-    return """rsync -e "ssh -p {port} -oStrictHostKeyChecking=no" -azvP "{source}" "{dest}" """.format(
+def rsync_upload_cmd(source, dest, port, key_location="~/.ssh/id_rsa.pub"):
+    return """rsync -e "ssh -p {port} -oStrictHostKeyChecking=no -i {key}" -azvP "{source}" "{dest}" """.format(
         port=port,
         source=source,
-        dest=dest
+        dest=dest,
+        key=key_location
     )
 
 
@@ -67,7 +69,7 @@ class TelegramPrefixes:
 def warn(message, telegram=True):
     printc("* {}".format(message), BColors.YELLOW)
     if telegram:
-        telegram_notify("<b>Warning</b>\n\n<code>{}</code>".format(message), prefix=TelegramPrefixes.ALERT)
+        telegram_notify("<b>Warning</b>\n\n<code>{}</code>".format(html.escape(message)), prefix=TelegramPrefixes.ALERT)
 
 
 def telegram_api_call(method, data, token=None):
@@ -90,7 +92,7 @@ def telegram_notify(message, chat_id=None, parse_mode="html", prefix=TelegramPre
 
 class TelegramStatusMessage:
     def __init__(self, latest_sync):
-        self.done_what = {k: False for k in ("replays", "avatars", "screenshots", "profile_backgrounds")}
+        self.done_what = {k: False for k in ("replays", "avatars", "screenshots", "profile_backgrounds", "database")}
         self.latest_sync = latest_sync
         telegram_response = telegram_notify(self.telegram_message, prefix="")
         self.telegram_message_id = None

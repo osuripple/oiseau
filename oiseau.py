@@ -1,6 +1,8 @@
+import html
 import os
-
+import tarfile
 import time
+import traceback
 
 import iso8601
 
@@ -167,7 +169,10 @@ try:
     # We have everything we need from C14, start syncing
     # Sync replays, avatars, screenshots and profile backgrounds
     latest_sync = "Never"
-    utils.call_process(utils.scp_download_cmd("{}/latest_sync.txt".format(ssh_remote), ssh_port, "tmp/latest_sync.txt", key_location="~/prodkey/id_rsa"))
+    utils.call_process(utils.scp_download_cmd(
+        "{}/latest_sync.txt".format(ssh_remote), ssh_port, "tmp/latest_sync.txt",
+        key_location=Config()["SSH_KEY_LOCATION"])
+    )
     if not os.path.isfile("tmp/latest_sync.txt"):
         utils.warn("Cannot find latest_sync on remote endpoint!")
     else:
@@ -182,7 +187,9 @@ try:
             printc("* {} syncing disabled".format(d), utils.BColors.YELLOW)
             continue
 
-        rsync_command = utils.rsync_upload_cmd(config["{}_FOLDER".format(d)], ssh_remote, ssh_port)
+        rsync_command = utils.rsync_upload_cmd(
+            config["{}_FOLDER".format(d)], ssh_remote, ssh_port, key_location=Config()["SSH_KEY_LOCATION"]
+        )
         printc("* Syncing {}".format(d), utils.BColors.BLUE)
         exit_code = utils.call_process(rsync_command)
         if exit_code != 0:
@@ -191,20 +198,34 @@ try:
 
     if config["SYNC_DATABASE"]:
         # Dump database to tmp/db.sql
+        database_file = "tmp/db.sql"
+        archive_file = "tmp/db.tar.gz"
         printc("* Dumping database...", utils.BColors.BLUE)
         exit_code = utils.call_process(
-            """mysqldump -u "{username}" "-p{password}" "{name}" > tmp/db.sql""".format(
+            """mysqldump -u "{username}" "-p{password}" "{name}" > {output}""".format(
                 username=config["DB_USERNAME"],
                 password=config["DB_PASSWORD"],
-                name=config["DB_NAME"]
+                name=config["DB_NAME"],
+                output=database_file
             )
         )
         if exit_code != 0:
             raise CriticalError("Something went wrong while dumping the database! (exit code: {})".format(exit_code))
 
+        # Compress the database
+        if Config()["COMPRESS_DATABASE"]:
+            printc("* Compressing database", utils.BColors.BLUE)
+            with tarfile.open(archive_file, "w:gz") as tar:
+                tar.add(database_file, arcname=os.path.basename(archive_file))
+            database_file = archive_file
+        else:
+            printc("* The database won't be compressed", utils.BColors.BLUE)
+
         # Sync database
-        printc("* Syncing database...", utils.BColors.BLUE)
-        exit_code = utils.call_process(utils.rsync_upload_cmd("tmp/db.sql", ssh_remote, ssh_port))
+        printc("* Syncing database ({})...".format(database_file), utils.BColors.BLUE)
+        exit_code = utils.call_process(
+            utils.rsync_upload_cmd(database_file, ssh_remote, ssh_port, key_location=Config()["SSH_KEY_LOCATION"])
+        )
         if exit_code != 0:
             raise CriticalError("Something went wrong while syncing the database! (exit code: {})".format(exit_code))
         utils.sync_done("database", telegram_status_message)
@@ -212,13 +233,17 @@ try:
         # Delete temp db dump
         printc("* Deleting temporary database dump...", utils.BColors.BLUE)
         os.remove("tmp/db.sql")
+        if os.path.isfile(archive_file):
+            os.remove(archive_file)
 
     # Write latest_sync.txt and sync it
     latest_sync = time.strftime('%x %X %Z')
     printc("\n* Updating latest sync to {}".format(latest_sync), utils.BColors.BLUE)
     with open("latest_sync.txt", "w+") as f:
         f.write(latest_sync)
-    exit_code = utils.call_process(utils.rsync_upload_cmd("latest_sync.txt", ssh_remote, ssh_port))
+    exit_code = utils.call_process(
+        utils.rsync_upload_cmd("latest_sync.txt", ssh_remote, ssh_port, key_location=Config()["SSH_KEY_LOCATION"])
+    )
     if exit_code != 0:
         raise CriticalError(
             "Something went wrong while syncing the latest sync date! (exit code: {})".format(exit_code)
@@ -234,3 +259,10 @@ except CriticalError as e:
         prefix=utils.TelegramPrefixes.ERROR
     )
     exit(-1)
+except Exception as e:
+    printc("# Unknown error while backing up ({})".format(str(e)), utils.BColors.RED)
+    tb = traceback.format_exc()
+    utils.telegram_notify(
+        "<b>Unhandled exception during backup.</b>\n\n<code>{}</code>".format(html.escape(tb)),
+        prefix=utils.TelegramPrefixes.ERROR
+    )
