@@ -175,8 +175,7 @@ try:
             latest_sync = f.read()
         os.remove("tmp/latest_sync.txt")
 
-    tr = utils.telegram_notify(utils.telegram_status_message(latest_sync=latest_sync))
-    telegram_main_message = tr.json()["result"] if tr is not None else None
+    telegram_status_message = utils.TelegramStatusMessage(latest_sync)
     done = {"replays": False, "avatars": False, "screenshots": False, "profile_backgrounds": False, "database": False}
     for d in (x.upper() for x in done.keys() if x != "database"):
         if not config["SYNC_{}".format(d)]:
@@ -188,12 +187,7 @@ try:
         exit_code = utils.call_process(rsync_command)
         if exit_code != 0:
             raise CriticalError("Something went wrong while syncing {}! (exit code: {})".format(d, exit_code))
-        utils.sync_done(
-            what=d,
-            done_dict=done,
-            latest_sync=latest_sync,
-            telegram_message_id=telegram_main_message["message_id"]
-        )
+        utils.sync_done(d, telegram_status_message)
 
     if config["SYNC_DATABASE"]:
         # Dump database to tmp/db.sql
@@ -213,12 +207,7 @@ try:
         exit_code = utils.call_process(utils.rsync_upload_cmd("tmp/db.sql", ssh_remote, ssh_port))
         if exit_code != 0:
             raise CriticalError("Something went wrong while syncing the database! (exit code: {})".format(exit_code))
-        utils.sync_done(
-            what="database",
-            done_dict=done,
-            latest_sync=latest_sync,
-            telegram_message_id=telegram_main_message["message_id"]
-        )
+        utils.sync_done("database", telegram_status_message)
 
         # Delete temp db dump
         printc("* Deleting temporary database dump...", utils.BColors.BLUE)
@@ -236,12 +225,8 @@ try:
         )
 
     # Finally done
-    utils.sync_done(
-        done_dict=done,
-        latest_sync=latest_sync,
-        telegram_message_id=telegram_main_message["message_id"],
-        done=True
-    )
+    utils.printc("* All done!", utils.BColors.GREEN)
+    utils.sync_done(status_message=telegram_status_message)
 except CriticalError as e:
     printc("# {}".format(e.message), utils.BColors.RED + utils.BColors.BOLD)
     utils.telegram_notify(

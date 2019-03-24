@@ -88,31 +88,43 @@ def telegram_notify(message, chat_id=None, parse_mode="html", prefix=TelegramPre
     })
 
 
-def telegram_status_message(
-    replays=False, avatars=False, screenshots=False, profile_backgrounds=False,
-    database=False, latest_sync=None, done=False
-):
-    return (TelegramPrefixes.NORMAL if not done else TelegramPrefixes.SUCCESS) + \
-        "<b>C14 backup {}</b>\n\n".format("done!" if done else "in progress") + "\n".join(
-        ("✅" if x else "🕐" if not x and Config()["SYNC_{}".format(ck)] else "❌") +
-        " " +
-        ck.lower().replace("_", " ").capitalize() for x, ck in zip(
-            (replays, avatars, screenshots, profile_backgrounds, database),
-            ("REPLAYS", "AVATARS", "SCREENSHOTS", "PROFILE_BACKGROUNDS", "DATABASE")
-        )
-    ) + "\n\nLatest sync: <code>{}</code>".format(latest_sync if not None else "Never")
+class TelegramStatusMessage:
+    def __init__(self, latest_sync):
+        self.done_what = {k: False for k in ("replays", "avatars", "screenshots", "profile_backgrounds")}
+        self.latest_sync = latest_sync
+        telegram_response = telegram_notify(self.telegram_message, prefix="")
+        self.telegram_message_id = None
+        if telegram_response is not None and telegram_response.status_code == 200:
+            json_response = telegram_response.json()
+            if json_response.get("ok", False):
+                self.telegram_message_id = json_response.get("result", {}).get("message_id", None)
+
+    @property
+    def done(self):
+        return all(True for k, v in self.done_what.items() if not Config()["SYNC_{}".format(k.upper())] or v)
+
+    @property
+    def telegram_message(self):
+        return (TelegramPrefixes.NORMAL if not self.done else TelegramPrefixes.SUCCESS) + \
+               "<b>C14 backup {}</b>\n\n".format("done!" if self.done else "in progress") + "\n".join(
+            ("✅" if x else "🕐" if not x and Config()["SYNC_{}".format(ck.upper())] else "❌") +
+            " " +
+            ck.replace("_", " ").capitalize() for ck, x in self.done_what.items()
+        ) + "\n\nLatest sync: <code>{}</code>".format(self.latest_sync if not None else "Never")
+
+    def update_telegram_message(self):
+        if self.telegram_message_id is not None:
+            telegram_api_call("editMessageText", {
+                "chat_id": Config()["TELEGRAM_CHAT_ID"],
+                "message_id": self.telegram_message_id,
+                "text": self.telegram_message,
+                "parse_mode": "html"
+            })
 
 
-def sync_done(done_dict, latest_sync, telegram_message_id=None, done=False, what=None):
+def sync_done(what=None, status_message=None):
     if what is not None:
-        done_dict[what.lower()] = True
+        status_message.done_what[what.lower()] = True
         printc("* Done syncing {}!\n".format(what), BColors.GREEN)
-    if done:
-        printc("* All done!\n", BColors.GREEN)
-    if telegram_message_id is not None:
-        telegram_api_call("editMessageText", {
-            "chat_id": Config()["TELEGRAM_CHAT_ID"],
-            "message_id": telegram_message_id,
-            "text": telegram_status_message(latest_sync=latest_sync, **done_dict, done=done),
-            "parse_mode": "html"
-        })
+    if status_message is not None:
+        status_message.update_telegram_message()
