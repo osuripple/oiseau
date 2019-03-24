@@ -251,6 +251,7 @@ try:
 
     # Finally done
     utils.printc("* All done!", utils.BColors.GREEN)
+    telegram_status_message.latest_sync = latest_sync
     utils.sync_done(status_message=telegram_status_message)
 except CriticalError as e:
     printc("# {}".format(e.message), utils.BColors.RED + utils.BColors.BOLD)
