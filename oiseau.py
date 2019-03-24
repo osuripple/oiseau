@@ -169,6 +169,7 @@ try:
     for d in ["REPLAYS", "AVATARS", "SCREENSHOTS", "PROFILE_BACKGROUNDS"]:
         if not config["SYNC_{}".format(d)]:
             printc("* {} syncing disabled".format(d), utils.BColors.YELLOW)
+            continue
 
         rsync_command = utils.rsync_cmd(config["{}_FOLDER".format(d)], ssh_remote, ssh_port)
         printc("* Syncing {}".format(d), utils.BColors.BLUE)
