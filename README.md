@@ -28,7 +28,7 @@ SYNC_DATABASE | True | If True, dump and sync the database
 COMPRESS_DATABASE | False | If True, the sql file will be gzipped before uploading it
 DB_USERNAME | | MySQL username
 DB_PASSWORD | | MySQL password
-DB_NAME | ripple | MySQL database name
+DB_NAME | | MySQL database name
 TELEGRAM_TOKEN | | Your Bot's Telegram API token. Leave empty to disable Telegram integration.
 TELEGRAM_CHAT_ID | | The chat id to which the bot will send messages to
 
