@@ -260,6 +260,13 @@ except CriticalError as e:
         prefix=utils.TelegramPrefixes.ERROR
     )
     exit(-1)
+except OnlineApiError as e:
+    printc("# Online API Error", utils.BColors.RED)
+    printc("{}: {}".format(e.request.status_code, e.request.text), utils.BColors.RED)
+    utils.telegram_notify(
+        "<b>Online API Error during backup:</b>\n\n<code>{}: {}</code>".format(e.request.status_code, html.escape(e.request.text)),
+        prefix=utils.TelegramPrefixes.ERROR
+    )
 except Exception as e:
     printc("# Unknown error while backing up ({})".format(str(e)), utils.BColors.RED)
     tb = traceback.format_exc()
