@@ -3,6 +3,10 @@ import os
 import tarfile
 import time
 import traceback
+import gc
+import ftplib
+import time
+import sys
 
 import iso8601
 
@@ -11,7 +15,7 @@ from utils import printc
 from config import Config
 from online import OnlineApiClient, OnlineApiError
 
-VERSION = "1.0.0"
+VERSION = "2.0.0"
 
 
 class CriticalError(Exception):
@@ -31,6 +35,7 @@ try:
     # Load config
     config = Config()
 
+    # Always run API checks
     # Check online.net api token
     client = OnlineApiClient(config["ONLINE_API_KEY"])
     logged_in = client.auth_valid()
@@ -42,10 +47,21 @@ try:
     if not archives:
         raise CriticalError("No C14 archives found")
 
+    # Continue only if temp folder is big enough
+    total_size = sum(os.path.getsize(os.path.join("temp", f)) for f in os.listdir("temp/") if os.path.isfile(os.path.join("temp", f)))
+    if total_size < 500 * 1024 * 1024:
+        printc(f"* Temp folder is too small ({total_size / 1024 / 1024} MB). Aborting.", utils.BColors.YELLOW)
+        exit(0)
+
     # Filter only desired C14 buckets by name and sort them by creation date (most recent first)
     sync_archives = sorted(
-        [x for x in archives if x["name"].lower() == config["C14_SYNC_NAME"]],
-        key=lambda x: int(time.mktime(iso8601.parse_date(x["creation_date"]).timetuple())),
+        [
+            {
+                **x,
+                "unix_creation_date": int(time.mktime(iso8601.parse_date(x["creation_date"]).timetuple()))
+            } for x in archives if x["name"].lower() == config["C14_SYNC_NAME"]
+        ],
+        key=lambda x: x["unix_creation_date"],
         reverse=True
     )
     if not sync_archives:
@@ -53,24 +69,35 @@ try:
 
     # Make sure that ALL sync archives are 'active', if there's something 'busy' or 'deleting', we want
     # to wait for these pending operation to finish before extracting our archive again
-    for archive in sync_archives:
-        if archive["status"] != "active":
-            raise CriticalError(
-                "Found sync archive(s), but not all of them are 'active' (found '{}'), retry later".format(
-                    archive["status"]
-                )
-            )
+    if not all(x["status"] == "active" for x in sync_archives):
+        raise CriticalError(
+            "Found sync archive(s), but not all of them are 'active'. "
+            "There's probably an (un)archive operation in progress. Retry later"
+        )
+
 
     # Delete old sync archives if needed
     if len(sync_archives) > 1:
+        # Paranoid
+        # assert all(sync_archives[0]["unix_creation_date"] > x["unix_creation_date"] for x in sync_archives[1:])
+
         # In sync_archives[0] there's the most recent bucket (that we want to keep)
         # Other archives are outdated copies that we don't need anymore
         for outdated_archive in sync_archives[1:]:
-            printc("* Deleting outdated archive {}...".format(outdated_archive["uuid_ref"]), utils.BColors.BLUE)
+            printc("* Archive {} should be deleted".format(outdated_archive["uuid_ref"]), utils.BColors.YELLOW)
             try:
-                client.request(
-                    handler=outdated_archive["$ref"],
-                    method="DELETE"
+                # TODO: Enable once we are sure online.net rearchive works
+                # client.request(
+                #    handler=outdated_archive["$ref"],
+                #    method="DELETE"
+                # )
+                utils.telegram_notify(
+                    "Archive {} should be deleted. "
+                    "This will be automatic once we figure out whether "
+                    "online.net's 'automatic rearchive' feature is broken or not.".format(
+                        outdated_archive["uuid_ref"]
+                    ),
+                    prefix=utils.TelegramPrefixes.NORMAL
                 )
             except OnlineApiError as e:
                 if e.request.status_code == 409:
@@ -92,7 +119,7 @@ try:
     if temp_bucket is None:
         # This archive is archived!
         printc(
-            "* Temporary bucket for {} not found, creating one...".format(sync_archive["uuid_ref"]),
+            "* Temporary bucket for {} not found, unarchiving it.".format(sync_archive["uuid_ref"]),
             utils.BColors.YELLOW
         )
 
@@ -106,30 +133,41 @@ try:
         )
 
         # Get SSH key(s)
-        ssh_keys = client.request("api/v1/user/key/ssh")
-        valid_ssh_keys = [
-            x["uuid_ref"] for x in ssh_keys if x["description"].lower() in [
-                y.lower() for y in config["C14_ALLOWED_SSH_KEYS"]
-            ]
-        ]
-        printc(
-            "* Using SSH keys: {}".format(valid_ssh_keys),
-            utils.BColors.BLUE
-        )
-        if not valid_ssh_keys:
-            raise CriticalError("No valid SSH keys found")
+        # ssh_keys = client.request("api/v1/user/key/ssh")
+        # valid_ssh_keys = [
+        #     x["uuid_ref"] for x in ssh_keys if x["description"].lower() in [
+        #         y.lower() for y in config["C14_ALLOWED_SSH_KEYS"]
+        #     ]
+        # ]
+        # printc(
+        #     "* Using SSH keys: {}".format(valid_ssh_keys),
+        #     utils.BColors.BLUE
+        # )
+        # additional = {}
+        # if valid_ssh_keys:
+        #     additional["ssh_keys"] = valid_ssh_keys
 
         # Unarchive request
+        additional = {}
         try:
             client.request(
                 handler="{}/unarchive".format(sync_archive["$ref"]),
                 method="POST",
                 json={
-                    "location_id": locations[0]["uuid_ref"],
-                    "protocols": ["ssh", "ftp"],
-                    "ssh_keys": valid_ssh_keys,
+                    **{
+                        "location_id": locations[0]["uuid_ref"],
+                        "protocols": ["ssh", "ftp"],
+                        "rearchive": True
+                    },
+                    **additional
                 }
             )
+            m = "Started unarchiving {}".format(sync_archive["uuid_ref"])
+            printc("* {}".format(m), utils.BColors.GREEN)
+            utils.telegram_notify(m, prefix=utils.TelegramPrefixes.NORMAL)
+
+            # Exit because we don't have a temporary bucket yet
+            sys.exit()
         except OnlineApiError as e:
             if e.request.status_code == 409:
                 # Operation already requested
@@ -140,119 +178,130 @@ try:
                 # Other error
                 raise e
 
-        raise CriticalError("Started unarchiving {}".format(sync_archive["uuid_ref"]))
-
     # C14 is looking good, get SSH credentials
     # This archive has an open temporary storage box
     printc("* Temporary bucket {} found".format(temp_bucket["uuid_ref"]), utils.BColors.BLUE)
 
-    # Get SSH credentials
-    ssh_uri = None
-    for credential in temp_bucket["credentials"]:
-        if credential["protocol"] == "ssh":
-            ssh_uri = credential["uri"]
+    # Get FTP credentials
+    bucket_info = client.request(handler=sync_archive["$ref"])
+    ftp_user = None
+    ftp_password = None
+    ftp_host = None
+    ftp_port = None
+    for credentials in bucket_info["bucket"]["credentials"]:
+        if credentials["protocol"] == "ftp":
+            ftp_user = credentials["login"]
+            ftp_password = credentials["password"]
+            prefix = f"ftp://{ftp_user}@"
+            assert credentials["uri"].startswith(prefix)
+            uri_parts = credentials["uri"][len(prefix):].split(":")
+            assert len(uri_parts) == 2
+            ftp_host = uri_parts[0]
+            ftp_port = int(uri_parts[1])
+    if any(x is None for x in (ftp_user, ftp_host, ftp_port, ftp_password)):
+        raise CriticalError("Could not determine ftp credentials")
+    printc("* Found FTP credentials", utils.BColors.BLUE)
 
-    # SSH not configured
-    if ssh_uri is None:
-        raise CriticalError("SSH is not configured for bucket {}!".format(temp_bucket["uuid_ref"]))
-
-    # Separate SSH remote from port
+    # Download tar gz index
+    printc("* Retreiving tar gz index", utils.BColors.BLUE)
+    if os.path.isfile("/tmp/c14_index.txt"):
+        os.remove("/tmp/c14_index.txt")
     try:
-        ssh_remote, ssh_port = ssh_uri.lstrip("ssh://").split(":", 1)
-    except ValueError:
-        raise CriticalError("Invalid SSH uri ({})".format(ssh_uri))
+        session = ftplib.FTP()
+        session.connect(ftp_host, ftp_port)
+        session.login(ftp_user, ftp_password)
+        with open(f"/tmp/c14_index.txt", "wb") as f:
+            session.retrbinary(f"RETR c14_index.txt", f.write)
+    finally:
+        session.quit()
 
-    # Append folder (/buffer)
-    ssh_remote += ":/buffer"
-    printc("* Using SSH remote {} (port {})\n".format(ssh_remote, ssh_port), utils.BColors.BLUE)
+    # Determine new archive id (last one in file)
+    old_archive_id = -1
+    with open("/tmp/c14_index.txt", "r") as f:
+        for line in f:
+            # Skip empty lines
+            if not line.strip():
+                continue
+            parts = line.split("\t")
+            old_archive_id = int(parts[0])
 
-    # We have everything we need from C14, start syncing
-    # Sync replays, avatars, screenshots and profile backgrounds
-    latest_sync = "Never"
-    utils.call_process(utils.scp_download_cmd(
-        "{}/latest_sync.txt".format(ssh_remote), ssh_port, "tmp/latest_sync.txt",
-        key_location=Config()["SSH_KEY_LOCATION"])
-    )
-    if not os.path.isfile("tmp/latest_sync.txt"):
-        utils.warn("Cannot find latest_sync on remote endpoint!")
-    else:
-        with open("tmp/latest_sync.txt") as f:
-            latest_sync = f.read()
-        os.remove("tmp/latest_sync.txt")
+    # Empty file
+    if old_archive_id < 0:
+        raise CriticalError("Could not determine the previous archive id from the tar gz index")
 
-    telegram_status_message = utils.TelegramStatusMessage(latest_sync)
-    done = {"replays": False, "avatars": False, "screenshots": False, "profile_backgrounds": False, "database": False}
-    for d in (x.upper() for x in done.keys() if x != "database"):
-        if not config["SYNC_{}".format(d)]:
-            printc("* {} syncing disabled".format(d), utils.BColors.YELLOW)
+    # Determine new archive and max replay id
+    new_archive_id = old_archive_id + 1
+    replay_ids = []
+
+    # Store all replay ids
+    for file in os.listdir("temp/"):
+        if not os.path.isfile(os.path.join("temp", file)) or not file.startswith("replay_") or not file.endswith(".osr"):
             continue
+        replay_id = int(file[len("replay_"):-len(".osr")])
+        replay_ids.append(replay_id)
+    if not replay_ids:
+        raise CriticalError("No replays?")
 
-        rsync_command = utils.rsync_upload_cmd(
-            config["{}_FOLDER".format(d)], ssh_remote, ssh_port, key_location=Config()["SSH_KEY_LOCATION"]
-        )
-        printc("* Syncing {}".format(d), utils.BColors.BLUE)
-        exit_code = utils.call_process(rsync_command)
-        if exit_code != 0:
-            raise CriticalError("Something went wrong while syncing {}! (exit code: {})".format(d, exit_code))
-        utils.sync_done(d, telegram_status_message)
+    # Get the max
+    max_replay_id = max(replay_ids)
 
-    if config["SYNC_DATABASE"]:
-        # Dump database to tmp/db.sql
-        database_file = "tmp/db.sql"
-        archive_file = "tmp/db.tar.gz"
-        printc("* Dumping database...", utils.BColors.BLUE)
-        exit_code = utils.call_process(
-            """mysqldump -u "{username}" "-p{password}" "{name}" > {output}""".format(
-                username=config["DB_USERNAME"],
-                password=config["DB_PASSWORD"],
-                name=config["DB_NAME"],
-                output=database_file
-            )
-        )
-        if exit_code != 0:
-            raise CriticalError("Something went wrong while dumping the database! (exit code: {})".format(exit_code))
+    # Update tmp c14 index with new archive id and max replay
+    with open("/tmp/c14_index.txt", "a") as f:
+        f.write(f"{new_archive_id}\t{max_replay_id}\n")
+    printc(f"* New archive id: {new_archive_id}, max replay id: {max_replay_id}", utils.BColors.BLUE)
 
-        # Compress the database
-        if Config()["COMPRESS_DATABASE"]:
-            printc("* Compressing database", utils.BColors.BLUE)
-            with tarfile.open(archive_file, "w:gz") as tar:
-                tar.add(database_file, arcname=os.path.basename(archive_file))
-            database_file = archive_file
-        else:
-            printc("* The database won't be compressed", utils.BColors.BLUE)
+    # Hopefully the gc will take care of replay_ids
+    del replay_ids
+    gc.collect()
 
-        # Sync database
-        printc("* Syncing database ({})...".format(database_file), utils.BColors.BLUE)
-        exit_code = utils.call_process(
-            utils.rsync_upload_cmd(database_file, ssh_remote, ssh_port, key_location=Config()["SSH_KEY_LOCATION"])
-        )
-        if exit_code != 0:
-            raise CriticalError("Something went wrong while syncing the database! (exit code: {})".format(exit_code))
-        utils.sync_done("database", telegram_status_message)
+    # Create .tar.gz with all replays
+    printc(f"* Creating tar gz file", utils.BColors.BLUE)
+    the_time = int(time.time())
+    tar_gz_name = f"{the_time}_replays_{new_archive_id}.tar.gz"
+    with tarfile.open(tar_gz_name, "w:gz") as tar:
+        for t_file in os.listdir("temp/"):
+            tar.add(os.path.join("temp", t_file), t_file)
 
-        # Delete temp db dump
-        printc("* Deleting temporary database dump...", utils.BColors.BLUE)
-        os.remove("tmp/db.sql")
-        if os.path.isfile(archive_file):
-            os.remove(archive_file)
+    # FTP upload
+    try:
+        session = ftplib.FTP()
+        session.connect(ftp_host, ftp_port)
+        session.login(ftp_user, ftp_password)
 
-    # Write latest_sync.txt and sync it
-    latest_sync = time.strftime('%x %X %Z')
-    printc("\n* Updating latest sync to {}".format(latest_sync), utils.BColors.BLUE)
-    with open("latest_sync.txt", "w+") as f:
-        f.write(latest_sync)
-    exit_code = utils.call_process(
-        utils.rsync_upload_cmd("latest_sync.txt", ssh_remote, ssh_port, key_location=Config()["SSH_KEY_LOCATION"])
-    )
-    if exit_code != 0:
-        raise CriticalError(
-            "Something went wrong while syncing the latest sync date! (exit code: {})".format(exit_code)
-        )
+        # Upload .tar.gz
+        printc(f"* {tar_gz_name} created. Now uploading via FTP.", utils.BColors.BLUE)
+        with open(tar_gz_name, "rb") as f:
+            session.storbinary(f"STOR {tar_gz_name}", f)
+
+        # Upload c14 index
+        with open("/tmp/c14_index.txt", "rb") as f:
+            session.storbinary(f"STOR c14_index.txt", f)
+            session.storbinary(f"STOR {the_time}_c14_index.txt", f)
+    finally:
+        session.quit()
+
+    # TODO: Enable once we are sure online.net rearchive works
+    # printc(f"* Cleanup time! Deleting the tar gz file", utils.BColors.BLUE)
+    # os.remove(tar_gz_name)
+
+    printc(f"* Emptying the temp folder as well", utils.BColors.BLUE)
+    # TODO: Delete only files in the replay ids array, so we avoid deleting unsynced files if new files are synced while taking the backup
+    for file in os.listdir("temp/"):
+        os.remove(os.path.join("temp", file))
+
+    printc(f"* Deleting temp tar gz index", utils.BColors.BLUE)
+    os.rename("/tmp/c14_index.txt", f"{the_time}_c14_index.txt")
+    # TODO: Remove line above and uncomment the line below once we are sure onlime.net rearchive works
+    # os.remove("/tmp/c14_index.txt")
 
     # Finally done
     utils.printc("* All done!", utils.BColors.GREEN)
-    telegram_status_message.latest_sync = latest_sync
-    utils.sync_done(status_message=telegram_status_message)
+    utils.telegram_notify(f"A new chunked backup has been made and uploaded to C14 ({tar_gz_name})")
+    # TODO: Remove once we are sure online.net rearchive works
+    utils.telegram_notify(
+        "The .tar.gz and index file have not been deleted from local disk as a precaution in case online.net's rearchive does not work.",
+        prefix=utils.TelegramPrefixes.ALERT
+    )
 except CriticalError as e:
     printc("# {}".format(e.message), utils.BColors.RED + utils.BColors.BOLD)
     utils.telegram_notify(

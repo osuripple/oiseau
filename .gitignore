@@ -4,3 +4,6 @@ settings.ini
 latest_sync.txt
 tmp/db.sql
 .pyenv
+*.txt
+*.tar.gz
+*.osr
