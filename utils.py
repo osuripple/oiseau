@@ -5,7 +5,7 @@ from typing import Callable, Any
 import requests
 
 from config import Config
-from oiseau import CriticalError
+from exceptions import CriticalError
 
 def rclone_copy_cmd(source_file: str, dest_file: str, *, progress: bool = False) -> str:
     return f"""rclone copy "{source_file}" "{dest_file}" {'--progress' if progress else ''}"""

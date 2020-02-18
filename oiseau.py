@@ -14,13 +14,10 @@ import utils
 from utils import printc
 from config import Config
 from online import OnlineApiClient, OnlineApiError
+from exceptions import CriticalError
 
 VERSION = "2.1.0"
 
-
-class CriticalError(Exception):
-    def __init__(self, message):
-        self.message = message
 
 try:
     # Here's a cute birb (oiseau=birb in french)
