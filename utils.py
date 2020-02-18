@@ -140,7 +140,7 @@ def sync_done(what=None, status_message=None):
 def must_success(f: Callable[[], int], success: Callable[[int], bool] = lambda x: x == 0) -> Any:
     r = f()
     if not success(r):
-        raise CriticalError("Error: got {r}")
+        raise CriticalError(f"Error: got {r}")
     return r
 
 def rclone_copy(source: str, dest: str, *, progress: bool = False) -> Any:
