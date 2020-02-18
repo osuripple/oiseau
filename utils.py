@@ -8,7 +8,7 @@ from config import Config
 from oiseau import CriticalError
 
 def rclone_copy_cmd(source_file: str, dest_file: str, *, progress: bool = False) -> str:
-    return """rclone copy "{source_file}" "{dest_file}" {'--progress' if progress else ''}"""
+    return f"""rclone copy "{source_file}" "{dest_file}" {'--progress' if progress else ''}"""
 
 
 def rsync_upload_cmd(source, dest, port, key_location="~/.ssh/id_rsa.pub"):
@@ -137,7 +137,7 @@ def sync_done(what=None, status_message=None):
         status_message.update_telegram_message()
 
 
-def must_success(f: Callable[[], int], success: Callable[[int], Bool] = lambda x: x == 0) -> None:
+def must_success(f: Callable[[], int], success: Callable[[int], bool] = lambda x: x == 0) -> None:
     r = f()
     if not success(r):
         raise CriticalError("Error: got {r}")
