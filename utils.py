@@ -1,9 +1,14 @@
 import html
 import subprocess
+from typing import Callable, Any
 
 import requests
 
 from config import Config
+from oiseau import CriticalError
+
+def rclone_copy_cmd(source_file: str, dest_file: str, *, progress: bool = False) -> str:
+    return """rclone copy "{source_file}" "{dest_file}" {'--progress' if progress else ''}"""
 
 
 def rsync_upload_cmd(source, dest, port, key_location="~/.ssh/id_rsa.pub"):
@@ -24,7 +29,7 @@ def scp_download_cmd(source, port, local_file, key_location="~/.ssh/id_rsa.pub")
     )
 
 
-def call_process(command):
+def call_process(command: str) -> int:
     process = subprocess.Popen(
         command,
         shell=True,
@@ -130,3 +135,12 @@ def sync_done(what=None, status_message=None):
         printc("* Done syncing {}!\n".format(what), BColors.GREEN)
     if status_message is not None:
         status_message.update_telegram_message()
+
+
+def must_success(f: Callable[[], int], success: Callable[[int], Bool] = lambda x: x == 0) -> None:
+    r = f()
+    if not success(r):
+        raise CriticalError("Error: got {r}")
+
+def rclone_copy(source: str, dest: str, *, progress: bool = False) -> None:
+    must_success(lambda: call_process(rclone_copy_cmd(source, dest, progress=progress)))

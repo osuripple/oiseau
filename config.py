@@ -1,11 +1,15 @@
+from typing import Any, Dict
+
 from decouple import config
 from decouple import Csv
 
 
 class Config:
     def __init__(self):
-        self._config = {
+        self._config: Dict[str, Any] = {
             "ONLINE_API_KEY": config("ONLINE_API_KEY", default=""),
+
+            "RCLONE_REMOTE": config("RCLONE_REMOTE", default= ""),
 
             "C14_SYNC_NAME": config("C14_SYNC_NAME", default="sync"),
             "C14_ALLOWED_SSH_KEYS": config("C14_ALLOWED_SSH_KEYS", default="", cast=Csv(str)),
@@ -32,5 +36,13 @@ class Config:
             "COMPRESS_DATABASE": config("COMPRESS_DATABASE", default="False", cast=bool)
         }
 
-    def __getitem__(self, item):
+    @property
+    def is_rclone(self) -> bool:
+        return bool(self["RCLONE_REMOTE"])
+
+    @property
+    def is_c14(self) -> bool:
+        return not self.is_rclone
+
+    def __getitem__(self, item) -> Any:
         return self._config[item]

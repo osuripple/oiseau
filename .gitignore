@@ -7,3 +7,4 @@ tmp/db.sql
 *.txt
 *.tar.gz
 *.osr
+env/
