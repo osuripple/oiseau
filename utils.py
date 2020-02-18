@@ -137,10 +137,11 @@ def sync_done(what=None, status_message=None):
         status_message.update_telegram_message()
 
 
-def must_success(f: Callable[[], int], success: Callable[[int], bool] = lambda x: x == 0) -> None:
+def must_success(f: Callable[[], int], success: Callable[[int], bool] = lambda x: x == 0) -> Any:
     r = f()
     if not success(r):
         raise CriticalError("Error: got {r}")
+    return r
 
-def rclone_copy(source: str, dest: str, *, progress: bool = False) -> None:
-    must_success(lambda: call_process(rclone_copy_cmd(source, dest, progress=progress)))
+def rclone_copy(source: str, dest: str, *, progress: bool = False) -> Any:
+    return must_success(lambda: call_process(rclone_copy_cmd(source, dest, progress=progress)))
